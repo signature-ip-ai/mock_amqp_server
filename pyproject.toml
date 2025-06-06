@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project]
+name = "mock_amqp_server"
+version = "1.0"
+authors = [
+  { name="Signature IP" },
+]
+description = "Instrumented mock rabbitmq server to test your publisher/consumer at the network level"
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "h11 == 0.16.0",
+]
+
+[project.scripts]
+mock_amqp_server = "service:main"
+
+[project.urls]
+Homepage = "https://github.com/signature-ip-ai/mock_amqp_server"

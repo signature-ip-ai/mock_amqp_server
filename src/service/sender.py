@@ -1,3 +1,4 @@
+import logging
 from struct import pack
 
 from .serialization import dumps
@@ -38,6 +39,7 @@ def send_heartbeat(transport):
 
 
 def send_connection_start(transport):
+    logging.info(f"send_connection_start: {transport}")
     # dumped from the peer-properties sent by a RabbitMQ 3.7.4
     # server
     peer_properties = {

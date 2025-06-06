@@ -1,3 +1,4 @@
+import logging
 import traceback
 from typing import Callable, Any
 from enum import IntEnum
@@ -66,12 +67,15 @@ class TrackerProtocol(asyncio.protocols.Protocol):
         self._parser_state = _ConnectionState.WAITING_PROTOCOL_HEADER
         self._channels = {}
 
+
     def connection_made(self, transport):
         """Handle new connection """
+
+        logging.info(f"connection_made: {transport}")
         self.transport = transport
 
-    def connection_lost(self, exception):
 
+    def connection_lost(self, exception):
         if exception is None:
             return
 
@@ -81,7 +85,9 @@ class TrackerProtocol(asyncio.protocols.Protocol):
             exception,
             exception.__traceback__,
         )
+
         print(traceback_list)
+
 
     def data_received(self, data):
         """Treat incoming bytes and handle the state machine.
@@ -89,13 +95,18 @@ class TrackerProtocol(asyncio.protocols.Protocol):
         State transitions in normal case:
 
         """
+
+        logging.info(f"data_received: {data}")
+
         self._buffer += data
 
         if self._parser_state == _ConnectionState.WAITING_PROTOCOL_HEADER:
             protocol_ok = self._check_protocol_header()
             if not protocol_ok:
+                logging.info("protocol_nok")
                 return
 
+            logging.info("protocol_ok")
             send_connection_start(self.transport)
             self._parser_state = _ConnectionState.WAITING_START_OK
             return
@@ -160,6 +171,8 @@ class TrackerProtocol(asyncio.protocols.Protocol):
                 continue
 
     def _check_protocol_header(self):
+        logging.info("_check_protocol_header")
+
         if len(self._buffer) < len(PROTOCOL_HEADER):
             # underflow
             return False
@@ -170,8 +183,8 @@ class TrackerProtocol(asyncio.protocols.Protocol):
             return False
 
         self._buffer = b''
-        print("sent")
         return True
+
 
     def _check_start_ok(self, method):
         if method.properties['mechanism'] not in ["PLAIN", "AMQPLAIN"]:

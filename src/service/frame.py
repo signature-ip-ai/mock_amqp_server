@@ -1,3 +1,4 @@
+import logging
 import struct
 from .method import Method
 from .method import Header
@@ -27,15 +28,18 @@ def read_frame(data_in):
             channel_number,
             payload_size,
         ) = struct.unpack('>BHL', data_in[0:7])
+
     except struct.error:
         print("struct_error")
         return None
+
     # Get the frame data
     frame_size = _FRAME_HEADER_SIZE + payload_size + _FRAME_END_SIZE
+    logging.info(f"read_frame - frame_size: {frame_size}")
 
     # We don't have all of the frame yet
     if frame_size > len(data_in):
-        print("no enough data", frame_size, len(data_in))
+        logging.warning(f"no enough data frame_size={frame_size}, data length={len(data_in)}")
         return None
 
     # The Frame termination chr is wrong

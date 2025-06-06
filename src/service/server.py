@@ -3,9 +3,12 @@
 It also route message from/to tackers and the other services.
 """
 import os
+import logging
 import traceback
 import asyncio
+import sys
 
+from .LogWrapper import configure_logger
 from .protocol import TrackerProtocol
 from .http_protocol import HTTPProtocol
 from .state import State
@@ -26,7 +29,9 @@ def _exception_handler(loop, context):
         print(line, end='')
 
 
-def _main():
+def run_server():
+    configure_logger(level=logging.INFO)
+
     global_state = State()
 
     loop = asyncio.get_event_loop()
@@ -39,6 +44,7 @@ def _main():
         '0.0.0.0',
         5672,
     )
+
     http_coroutine = loop.create_server(
         lambda: HTTPProtocol(
             global_state,
@@ -46,21 +52,21 @@ def _main():
         '0.0.0.0',
         HTTP_PORT,
     )
+
     server = loop.run_until_complete(coroutine)
     http_server = loop.run_until_complete(http_coroutine)
 
     try:
+        logging.info("Started AMQP Server at 0.0.0.0:5672")
         loop.run_forever()
+
     except KeyboardInterrupt:
         pass
 
+    logging.info("Tear-down server, closing connection")
     server.close()
     http_server.close()
     loop.run_until_complete(server.wait_closed())
     loop.run_until_complete(http_server.wait_closed())
 
     loop.close()
-
-
-if __name__ == "__main__":
-    _main()
