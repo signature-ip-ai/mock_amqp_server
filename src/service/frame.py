@@ -22,6 +22,8 @@ class InvalidFrameError(Exception):
 
 def read_frame(data_in):
     # Extracted from pika's library and slightly adapted
+    logging.info("Check for new frame")
+
     try:
         (
             frame_type,
@@ -30,16 +32,17 @@ def read_frame(data_in):
         ) = struct.unpack('>BHL', data_in[0:7])
 
     except struct.error:
-        print("struct_error")
+        logging.error("struct_error")
         return None
 
+    logging.info("New frame detected")
     # Get the frame data
     frame_size = _FRAME_HEADER_SIZE + payload_size + _FRAME_END_SIZE
-    logging.info(f"read_frame - frame_size: {frame_size}")
+    logging.info(f"Frame size: {frame_size}")
 
     # We don't have all of the frame yet
     if frame_size > len(data_in):
-        logging.warning(f"no enough data frame_size={frame_size}, data length={len(data_in)}")
+        logging.warning(f"No enough data frame_size={frame_size}, data length={len(data_in)}")
         return None
 
     # The Frame termination chr is wrong
@@ -52,14 +55,16 @@ def read_frame(data_in):
     if frame_type == _FRAME_METHOD:
         # Get the Method ID from the frame data
         method_id = struct.unpack_from('>I', payload)[0]
-        print(method_id)
+        logging.info(f"Frame Type: _FRAME_METHOD, channel_number: {channel_number}, method_id: {hex(method_id)}")
+
         return Method(
             channel_number,
             frame_size,
             method_id,
-            payload,
-        )
+            payload)
+
     if frame_type == _FRAME_HEARTBEAT:
+        logging.info("Frame Type: _FRAME_HEARTBEAT")
         return HeartBeat(frame_size)
 
     if frame_type == _FRAME_HEADER:
@@ -69,21 +74,21 @@ def read_frame(data_in):
             body_size,
             property_flags,
         ) = struct.unpack('>HHQH', payload[0:14])
-        print(hex(class_id))
+
+        logging.info(f"Frame Type: _FRAME_HEADER, channel_number: {channel_number} class_id: {hex(class_id)}")
+
         return Header(
             channel_number,
             frame_size,
             class_id,
             body_size,
             property_flags,
-            payload
-        )
+            payload)
 
     if frame_type == _FRAME_BODY:
+        logging.info(f"Frame Type: _FRAME_BODY, channel_number: {channel_number}")
+
         return Body(
             channel_number,
             frame_size,
-            payload
-        )
-
-    print("frame type:", frame_type)
+            payload)

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from enum import IntEnum
 import json
 from wsgiref.handlers import format_date_time
@@ -88,9 +89,7 @@ class HTTPProtocol(asyncio.protocols.Protocol):
 
     def _on_get(self, target, headers=None):
 
-
-        print('GET ', target)
-
+        logging.info(f"GET {target}")
 
         ###
         # debug view, when you don't know what you are looking for
@@ -229,7 +228,8 @@ class HTTPProtocol(asyncio.protocols.Protocol):
         return json.loads(data.decode('utf-8'))
 
     def _on_post(self, target, data, headers=None):
-        print('POST ', target)
+        logging.info(f"POST {target}")
+
         if target.startswith(b'/add-message-on/'):
             exchange = target.split(b'/', maxsplit=2)[2]
             full_message = self._build_message(data, headers)
@@ -289,7 +289,8 @@ class HTTPProtocol(asyncio.protocols.Protocol):
         self._send_http_response_not_found()
 
     def _on_delete(self, target, headers=None):
-        print('DELETE ', target)
+        logging.info(f"DELETE {target}")
+
         if target.startswith(b'/messages-in-queue/'):
             queue_name = target.split(b'/', maxsplit=2)[2]
             self._global_state.delete_messages_of_queue(
@@ -308,7 +309,7 @@ class HTTPProtocol(asyncio.protocols.Protocol):
         self._send_http_response_not_found()
 
     def _on_put(self, target, data, headers=None):
-        print('PUT ', target)
+        logging.info(f"PUT {target}")
         self._send_http_response_not_found()
 
     def _on_get_done(self, future):

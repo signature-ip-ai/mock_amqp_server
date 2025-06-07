@@ -6,9 +6,7 @@ import os
 import logging
 import traceback
 import asyncio
-import sys
 
-from .LogWrapper import configure_logger
 from .protocol import TrackerProtocol
 from .http_protocol import HTTPProtocol
 from .state import State
@@ -17,7 +15,6 @@ HTTP_PORT = os.environ.get('HTTP_PORT', 8080)
 
 
 def _exception_handler(loop, context):
-
     exception = context['exception']
     # see https://stackoverflow.com/questions/9555133
     traceback_list = traceback.format_exception(
@@ -25,13 +22,12 @@ def _exception_handler(loop, context):
         exception,
         exception.__traceback__,
     )
+
     for line in traceback_list:
-        print(line, end='')
+        logging.debug(line)
 
 
 def run_server():
-    configure_logger(level=logging.INFO)
-
     global_state = State()
 
     loop = asyncio.get_event_loop()
