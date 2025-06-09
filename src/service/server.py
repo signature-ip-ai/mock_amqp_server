@@ -1,17 +1,11 @@
-"""Launch the service to listen to Trackers.
+#!/bin/env python3
 
-It also route message from/to tackers and the other services.
-"""
-import os
 import logging
 import traceback
 import asyncio
 
 from .protocol import TrackerProtocol
-from .http_protocol import HTTPProtocol
 from .state import State
-
-HTTP_PORT = os.environ.get('HTTP_PORT', 8080)
 
 
 def _exception_handler(loop, context):
@@ -27,9 +21,7 @@ def _exception_handler(loop, context):
         logging.debug(line)
 
 
-def run_server():
-    global_state = State()
-
+def run_server(global_state = State(), host = '0.0.0.0', port = 5672):
     loop = asyncio.get_event_loop()
     loop.set_exception_handler(_exception_handler)
 
@@ -37,20 +29,11 @@ def run_server():
         lambda: TrackerProtocol(
             global_state,
         ),
-        '0.0.0.0',
-        5672,
-    )
-
-    http_coroutine = loop.create_server(
-        lambda: HTTPProtocol(
-            global_state,
-        ),
-        '0.0.0.0',
-        HTTP_PORT,
+        host=host,
+        port=port
     )
 
     server = loop.run_until_complete(coroutine)
-    http_server = loop.run_until_complete(http_coroutine)
 
     try:
         logging.info("Started AMQP Server at 0.0.0.0:5672")
@@ -61,8 +44,5 @@ def run_server():
 
     logging.info("Tear-down server, closing connection")
     server.close()
-    http_server.close()
     loop.run_until_complete(server.wait_closed())
-    loop.run_until_complete(http_server.wait_closed())
-
     loop.close()

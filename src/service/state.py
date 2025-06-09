@@ -4,12 +4,18 @@ import copy
 import asyncio
 import logging
 import base64
+
 from collections import deque
 from random import randint
 
+from service.exchange import Exchange
+from service.queue import Queue
+from service.consumer import Consumer
+from service.message import Message
 
-DEFAULT_USER = os.environ.get('DEFAULT_USER', 'guest')
-DEFAULT_PASSWORD = os.environ.get('DEFAULT_PASSWORD', 'guest')
+
+DEFAULT_USER = os.environ.get('DEFAULT_USER', 'user')
+DEFAULT_PASSWORD = os.environ.get('DEFAULT_PASSWORD', 'password')
 
 
 class WaitTimeout(Exception):
@@ -18,35 +24,20 @@ class WaitTimeout(Exception):
 
 class State:
     def __init__(self):
-        self._users = {
-            DEFAULT_USER: DEFAULT_PASSWORD,
-        }
-        self._exchanges = {
-            # the anonymous default exchange is defined by AMQP 0.9.1
-            '': {
-                'type': 'direct',
-                'messages': deque(),
-            }
-        }
-        self._queues = {}
-        self._queues_bound_exchanges = {}
-        self._authentication_tried_on = {}
-        self._message_acknowledged = set()
-        self._message_not_acknowledged = set()
-        self._message_requeued = set()
+        self.reset()
+
 
     def reset(self):
         self._users = {
             DEFAULT_USER: DEFAULT_PASSWORD,
         }
+
         self._exchanges = {
             # the anonymous default exchange is defined by AMQP 0.9.1
-            '': {
-                'type': 'direct',
-                'messages': deque(),
-            }
+            '': Exchange(exchange_type='direct', messages=deque())
         }
-        self._queues = {}
+
+        self._queues: dict[str, Queue] = {}
         self._queues_bound_exchanges = {}
         self._authentication_tried_on = {}
         self._message_acknowledged = set()
@@ -55,12 +46,10 @@ class State:
 
 
     def to_json(self):
-
-
         exchanges_dict = {
             key: {
-                'type': value['type'],
-                'messages': list(value['messages']),
+                'type': value.exchange_type,
+                'messages': list(value.messages),
             }
             for key, value in self._exchanges.items()
         }
@@ -76,35 +65,31 @@ class State:
             'messages_requeued': list(self._message_requeued),
         })
 
+
     def check_credentials(self, username, password):
         is_authenticated = self._users.get(username, None) == password
 
         # we "log" it for instrumentation purpose
         self._authentication_tried_on[username] = is_authenticated
-
         return is_authenticated
+
 
     def declare_exchange(self, exchange_name, exchange_type):
         if exchange_name not in self._exchanges:
             logging.info(f"[state] declared exchange: {exchange_name}, type: {exchange_type}")
 
-            self._exchanges[exchange_name] = {
-                'type': exchange_type,
-                'messages': deque(),
-            }
+            self._exchanges[exchange_name] = Exchange(exchange_type=exchange_type, messages=deque())
             return True
 
         # if redeclared with a different type => error
-        return self._exchanges[exchange_name]['type'] == exchange_type
+        return self._exchanges[exchange_name].exchange_type == exchange_type
+
 
     def declare_queue(self, queue_name):
         if queue_name not in self._queues:
             logging.info(f"[state] new queue: {queue_name}")
+            self._queues[queue_name] = Queue(messages=deque(), consumers={})
 
-            self._queues[queue_name] = {
-                'messages': deque(),
-                'consumers': {},
-            }
             # AMQP 0.9.1 defines that by default all queues are bound to the default
             # exchange
             self.bind_queue(queue_name, with_exchange='')
@@ -114,6 +99,7 @@ class State:
             0,  # message count
             0,  # consumer count
         )
+
 
     def bind_queue(self, queue, with_exchange):
         if with_exchange not in self._exchanges:
@@ -131,21 +117,14 @@ class State:
         self._queues_bound_exchanges[with_exchange] = {queue}  # set()
         return True
 
-    def register_consumer(
-        self,
-        consumer,
-        consumer_tag,
-        queue_name,
-        channel_number
-    ):
+
+    def register_consumer(self, consumer_protocol, consumer_tag, queue_name, channel_number):
         if queue_name not in self._queues:
             return False
 
         logging.info(f"[state] consumer registered on queue: {queue_name}")
-        self._queues[queue_name]['consumers'][consumer_tag] = {
-            'protocol': consumer,
-            'channel_number': channel_number,
-        }
+        queue = self._queues[queue_name]
+        queue.consumers[consumer_tag] = Consumer(protocol=consumer_protocol, channel_number=channel_number)
         return True
 
 
@@ -155,28 +134,29 @@ class State:
             return
 
         logging.info(f"[state] messages of queue: {queue_name} deleted")
-        queue['messages'] = deque()
+        queue.messages = deque()
 
 
     def get_messages_of_queue(self, queue_name):
         queue = self._queues.get(queue_name, None)
         if queue is None:
             return None
-        return self.base64encode_message_in_list_when_appliable(list(queue['messages']))
+
+        return self.base64encode_message_in_list_when_appliable(list(queue.messages))
 
 
     def delete_messages_of_exchange(self, exchange_name):
         exchange = self._exchanges.get(exchange_name, None)
         if exchange is None:
             return
-        exchange['messages'] = deque()
+        exchange.messages = deque()
 
 
     def get_messages_of_exchange(self, exchange_name):
         exchange = self._exchanges.get(exchange_name, None)
         if exchange is None:
             return None
-        return self.base64encode_message_in_list_when_appliable(list(exchange['messages']))
+        return self.base64encode_message_in_list_when_appliable(list(exchange.messages))
 
 
     def base64encode_message_in_list_when_appliable(self, messages) -> list:
@@ -189,82 +169,54 @@ class State:
         return messages
 
 
-    def store_message(
-        self,
-        exchange_name,
-        headers,
-        message_data,
-    ):
+    def store_message(self, exchange_name, headers, message_data):
         """Store message for inspection."""
         if exchange_name not in self._exchanges:
             return False
 
-        message = {
-            'headers': headers,
-            'body': message_data,
-        }
+        message = Message(headers=headers, body=message_data)
 
         logging.info(f"[state] store message in exchange: {exchange_name}")
-        self._exchanges[exchange_name]['messages'].append(message)
+        self._exchanges[exchange_name].messages.append(message)
 
-        queues = self._queues_bound_exchanges.get(
-            exchange_name,
-            set(),
-        )
+        queues = self._queues_bound_exchanges.get(exchange_name, set())
+
         for queue_name in queues:
-            self._queues[queue_name]['messages'].append(message)
+            self._queues[queue_name].messages.append(message)
 
         return True
 
-    def store_message_in_queue(
-        self,
-        queue_name,
-        headers,
-        message_data,
-    ):
+
+    def store_message_in_queue(self, queue_name, headers, message_data):
         """Store message for inspection."""
         if queue_name not in self._queues:
             return False
 
-        message = {
-            'headers': headers,
-            'body': message_data,
-        }
-
-        self._queues[queue_name]['messages'].append(message)
+        message = Message(headers=headers, body=message_data)
+        self._queues[queue_name].messages.append(message)
 
         logging.info(f"[state] store message directly in queue: {queue_name}")
         return True
 
-    def publish_message(
-        self,
-        exchange_name,
-        headers,
-        message_data,
-        is_binary: bool = False,
-    ):
+
+    def publish_message(self, exchange_name, headers, message_data, is_binary: bool = False):
         """Publish message to a worker without storing it."""
         if exchange_name not in self._exchanges:
             return None
 
         logging.info(f"[state] publish message exchange_name: {exchange_name}")
-        message = {
-            'headers': headers,
-            'body': message_data,
-        }
 
-        self._exchanges[exchange_name]['messages'].append(message)
+        message = Message(headers=headers, body=message_data)
+        self._exchanges[exchange_name].messages.append(message)
 
-        queues = self._queues_bound_exchanges.get(
-            exchange_name,
-            set(),
-        )
+        queues = self._queues_bound_exchanges.get(exchange_name, set())
 
         for queue_name in queues:
-            consumers = self._queues[queue_name]['consumers']
+            consumers = self._queues[queue_name].consumers
 
             dead_consumers = []
             delivery_tag = None
+
             for consumer_tag, consumer in consumers.items():
                 delivery_tag = randint(1, 2**31)
 
@@ -272,13 +224,13 @@ class State:
                 # accumulate, and you will see some
                 # "socket.send() raised exception" in the logs see:
                 # https://github.com/allan-simon/mock-amqp-server/issues/5
-                if consumer['protocol'].transport.is_closing():
+                if consumer.protocol.transport.is_closing():
                     # we can't delete them directly as we're iterating
                     # over the dictionary
                     dead_consumers.append(consumer_tag)
                     continue
 
-                consumer['protocol'].push_message(
+                consumer.protocol.push_message(
                     headers,
                     message_data.encode('utf8') if not is_binary else message_data,
                     consumer['channel_number'],
@@ -294,30 +246,22 @@ class State:
                 logging.info("dead consumer cleaned")
                 del consumers[consumer_tag]
 
-            # TODO: support several delivery_tag
+            # Need to support several delivery_tag
             # if exchange is plugged to several queues
             return delivery_tag
 
-    def publish_message_in_queue(
-        self,
-        queue_name,
-        headers,
-        message_data,
-        is_binary: bool = False,
-    ):
+
+    def publish_message_in_queue(self, queue_name, headers, message_data, is_binary: bool = False):
         """Publish message to a worker without storing it."""
         if queue_name not in self._queues:
             return None
 
         logging.info(f"[state] publish message directly in queue: {queue_name}")
-        message = {
-            'headers': headers,
-            'body': message_data,
-        }
 
-        self._queues[queue_name]['messages'].append(message)
+        message = Message(headers=headers, body=message_data)
+        self._queues[queue_name].messages.append(message)
 
-        consumers = self._queues[queue_name]['consumers']
+        consumers = self._queues[queue_name].consumers
 
         dead_consumers = []
         delivery_tag = None
@@ -328,16 +272,16 @@ class State:
             # accumulate, and you will see some
             # "socket.send() raised exception" in the logs see:
             # https://github.com/allan-simon/mock-amqp-server/issues/5
-            if consumer['protocol'].transport.is_closing():
+            if consumer.protocol.transport.is_closing():
                 # we can't delete them directly as we're iterating
                 # over the dictionary
                 dead_consumers.append(consumer_tag)
                 continue
 
-            consumer['protocol'].push_message(
+            consumer.protocol.push_message(
                 headers,
                 message_data.encode('utf8') if not is_binary else message_data,
-                consumer['channel_number'],
+                consumer.channel_number,
                 consumer_tag,
                 delivery_tag,
                 'dummy-exchange',
@@ -352,14 +296,17 @@ class State:
 
         return delivery_tag
 
+
     def message_ack(self, delivery_tag):
         self._message_acknowledged.add(delivery_tag)
+
 
     def message_nack(self, delivery_tag, requeue: bool = False):
         if requeue:
             self._message_requeued.add(delivery_tag)
         else:
             self._message_not_acknowledged.add(delivery_tag)
+
 
     async def wait_authentication_performed_on(self, username, timeout=10):
         for _ in range(timeout):

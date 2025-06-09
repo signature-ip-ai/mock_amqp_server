@@ -4,6 +4,8 @@ from typing import Callable, Any
 from enum import IntEnum
 import asyncio
 
+from service.message_buffer import MessageBuffer
+
 from .frame import read_frame
 from .sender import (
     send_connection_start,
@@ -26,7 +28,6 @@ from .sender import (
 )
 from .heartbeat import HeartBeat
 from .method import MethodIDs
-from .message import Message
 from .serialization import loads
 
 PROTOCOL_HEADER = b'AMQP\x00\x00\x09\x01'
@@ -343,7 +344,7 @@ class TrackerProtocol(asyncio.protocols.Protocol):
             if frame_value.method_id == MethodIDs.BASIC_CONSUME:
 
                 self._global_state.register_consumer(
-                    consumer=self,
+                    consumer_protocol=self,
                     consumer_tag=frame_value.properties['consumer-tag'],
                     queue_name=frame_value.properties['queue-name'],
                     channel_number=channel_number,
@@ -381,23 +382,23 @@ class TrackerProtocol(asyncio.protocols.Protocol):
             if not frame_value.is_header:
                 return
 
-            channel['on_going_message'] = Message(headers=frame_value)
+            channel['on_going_message'] = MessageBuffer(headers=frame_value)
             channel['state'] = _ChannelState.WAITING_BODY
 
         if channel['state'] == _ChannelState.WAITING_BODY:
             if not frame_value.is_body:
                 return
 
-            message = channel['on_going_message']
-            message.add_content(frame_value.content)
-            if not message.is_complete():
+            message_buffer = channel['on_going_message']
+            message_buffer.add_content(frame_value.content)
+            if not message_buffer.is_complete():
                 return
 
             # TODO callback message
             ok = self._global_state.store_message(
                 exchange_name=channel['exchange'],
-                headers=message.headers.properties,
-                message_data=message.content,
+                headers=message_buffer.headers.properties,
+                message_data=message_buffer.content,
             )
             if not ok:
                 self.transport.close()
@@ -406,34 +407,26 @@ class TrackerProtocol(asyncio.protocols.Protocol):
             del channel['on_going_message']
             channel['state'] = _ChannelState.OPENED
 
-    def push_message(
-        self,
-        headers,
-        message,
-        channel_number,
-        consumer_tag,
-        delivery_tag,
-        exchange_name,
-    ):
+
+    def push_message(self, headers, message, channel_number, consumer_tag, delivery_tag, exchange_name):
         send_basic_deliver(
             self.transport,
             channel_number,
             consumer_tag,
             delivery_tag,
-            False,  # redelivered
+            False,
             exchange_name,
-            '',  # routing key
-        )
+            '')
+
         send_content_header(
             self.transport,
             channel_number,
             headers,
-            body_size=len(message),
-        )
+            body_size=len(message))
+
         send_content_body(
             self.transport,
             channel_number,
-            message,
-        )
+            message)
 
         logging.info("sent")
