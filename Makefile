@@ -22,4 +22,4 @@ $(VENV_DIR):
 
 
 clean:
-	@ rm -rf src/mock_amqp_server.egg-info dist
+	@ rm -rf src/mock_amqp_server.egg-info dist *.log

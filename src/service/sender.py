@@ -1,7 +1,7 @@
 import logging
 from struct import pack
 
-from .serialization import dumps
+from service.serialization import dumps
 
 _FRAME_END = b'\xce'
 

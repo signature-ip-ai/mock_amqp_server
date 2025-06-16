@@ -4,28 +4,14 @@ import logging
 import traceback
 import asyncio
 
-from .protocol import TrackerProtocol
-from .state import State
+from service.protocol import TrackerProtocol
+from service.state import State
 
 
-def _exception_handler(loop, context):
-    exception = context['exception']
-    # see https://stackoverflow.com/questions/9555133
-    traceback_list = traceback.format_exception(
-        None,  # <- type(e) by docs, but ignored
-        exception,
-        exception.__traceback__,
-    )
+def run_server(global_state = State(), host = '0.0.0.0', port = 5672, start_backend = True):
+    event_loop = asyncio.get_event_loop()
 
-    for line in traceback_list:
-        logging.debug(line)
-
-
-def run_server(global_state = State(), host = '0.0.0.0', port = 5672):
-    loop = asyncio.get_event_loop()
-    loop.set_exception_handler(_exception_handler)
-
-    coroutine = loop.create_server(
+    amqp_server = event_loop.create_server(
         lambda: TrackerProtocol(
             global_state,
         ),
@@ -33,16 +19,24 @@ def run_server(global_state = State(), host = '0.0.0.0', port = 5672):
         port=port
     )
 
-    server = loop.run_until_complete(coroutine)
+    server = event_loop.run_until_complete(amqp_server)
+
+    if start_backend:
+        event_loop.create_task(coro=global_state.process_messages())
 
     try:
         logging.info("Started AMQP Server at 0.0.0.0:5672")
-        loop.run_forever()
+        event_loop.run_forever()
 
     except KeyboardInterrupt:
-        pass
+        logging.info("Stopping service due to Keyboard Interrupt")
 
-    logging.info("Tear-down server, closing connection")
-    server.close()
-    loop.run_until_complete(server.wait_closed())
-    loop.close()
+    except Exception as exception: # pylint: disable=broad-exception-caught
+        traceback.print_exc()
+        logging.error(f"Stopping service due to {exception}")
+
+    finally:
+        logging.info("Tear-down server, closing connection")
+        server.close()
+        event_loop.run_until_complete(server.wait_closed())
+        event_loop.close()

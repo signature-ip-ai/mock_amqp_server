@@ -1,7 +1,7 @@
 import logging
 
 from enum import IntEnum
-from .serialization import loads
+from service.serialization import loads
 
 
 class MethodIDs(IntEnum):

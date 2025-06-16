@@ -1,13 +1,16 @@
 import logging
 import traceback
-from typing import Callable, Any
-from enum import IntEnum
 import asyncio
 
 from service.message_buffer import MessageBuffer
-
-from .frame import read_frame
-from .sender import (
+from service.ChannelState import ChannelState
+from service.ConnectionState import ConnectionState
+from service.Channel import Channel
+from service.serialization import loads
+from service.frame import read_frame
+from service.heartbeat import HeartBeat
+from service.method import MethodIDs
+from service.sender import (
     send_connection_start,
     send_connection_tune,
     send_connection_ok,
@@ -24,34 +27,12 @@ from .sender import (
     send_confirm_select_ok,
     send_basic_consume_ok,
     send_basic_deliver,
-    send_basic_cancel_ok,
+    send_basic_cancel_ok
 )
-from .heartbeat import HeartBeat
-from .method import MethodIDs
-from .serialization import loads
+
 
 PROTOCOL_HEADER = b'AMQP\x00\x00\x09\x01'
 CE_END_FRAME = b'\xce'
-
-
-class _ConnectionState(IntEnum):
-    """State of the parsing state machine."""
-
-    WAITING_PROTOCOL_HEADER = 1
-    WAITING_START_OK = 2
-    WAITING_TUNE_OK = 3
-    WAITING_OPEN = 4
-    OPENED = 5
-
-    WAITING_OTHER = 999
-
-
-class _ChannelState(IntEnum):
-    WAITING_OPEN = 1
-    OPENED = 2
-    WAITING_HEADER = 3
-    WAITING_BODY = 4
-
 
 class TrackerProtocol(asyncio.protocols.Protocol):
     """Handle connection and bytes parsing."""
@@ -66,8 +47,8 @@ class TrackerProtocol(asyncio.protocols.Protocol):
         self._global_state = global_state
 
         self._buffer = b''
-        self._parser_state = _ConnectionState.WAITING_PROTOCOL_HEADER
-        self._channels = {}
+        self._parser_state = ConnectionState.WAITING_PROTOCOL_HEADER
+        self._channels: dict[int, Channel] = {}
 
 
     def connection_made(self, transport):
@@ -102,7 +83,7 @@ class TrackerProtocol(asyncio.protocols.Protocol):
 
         self._buffer += data
 
-        if self._parser_state == _ConnectionState.WAITING_PROTOCOL_HEADER:
+        if self._parser_state == ConnectionState.WAITING_PROTOCOL_HEADER:
             protocol_ok = self._check_protocol_header()
             if not protocol_ok:
                 logging.info("protocol_nok")
@@ -110,8 +91,8 @@ class TrackerProtocol(asyncio.protocols.Protocol):
 
             logging.info("protocol_ok")
             send_connection_start(self.transport)
-            self._parser_state = _ConnectionState.WAITING_START_OK
-            logging.info("Parser State: _ConnectionState.WAITING_START_OK")
+            self._parser_state = ConnectionState.WAITING_START_OK
+            logging.info("Parser State: ConnectionState.WAITING_START_OK")
             return
 
         while len(self._buffer) > 0:
@@ -138,7 +119,7 @@ class TrackerProtocol(asyncio.protocols.Protocol):
                 self.transport.close()
                 return
 
-            if self._parser_state == _ConnectionState.WAITING_START_OK:
+            if self._parser_state == ConnectionState.WAITING_START_OK:
                 # correct_credentials = self._check_start_ok(frame_value)
                 correct_credentials = True
 
@@ -150,18 +131,18 @@ class TrackerProtocol(asyncio.protocols.Protocol):
 
                 logging.info("Credentials accepted")
                 send_connection_tune(self.transport)
-                self._parser_state = _ConnectionState.WAITING_TUNE_OK
-                logging.info("Parser State: _ConnectionState.WAITING_TUNE_OK")
+                self._parser_state = ConnectionState.WAITING_TUNE_OK
+                logging.info("Parser State: ConnectionState.WAITING_TUNE_OK")
                 return
 
-            if self._parser_state == _ConnectionState.WAITING_TUNE_OK:
+            if self._parser_state == ConnectionState.WAITING_TUNE_OK:
                 if frame_value.method_id != MethodIDs.TUNE_OK:
                     self.transport.close()
                     return
-                self._parser_state = _ConnectionState.WAITING_OPEN
+                self._parser_state = ConnectionState.WAITING_OPEN
                 continue
 
-            if self._parser_state == _ConnectionState.WAITING_OPEN:
+            if self._parser_state == ConnectionState.WAITING_OPEN:
                 if frame_value.method_id != MethodIDs.OPEN:
                     self.transport.close()
                     return
@@ -172,7 +153,7 @@ class TrackerProtocol(asyncio.protocols.Protocol):
                     return
 
                 send_connection_ok(self.transport)
-                self._parser_state = _ConnectionState.OPENED
+                self._parser_state = ConnectionState.OPENED
                 continue
 
     def _check_protocol_header(self):
@@ -188,29 +169,30 @@ class TrackerProtocol(asyncio.protocols.Protocol):
         self._buffer = b''
         return True
 
+
     # TODO: Need to update implementation for crendential validation
-    # def _check_start_ok(self, method):
-    #     if method.properties['mechanism'] not in ["PLAIN", "AMQPLAIN"]:
-    #         return False
+    def _check_start_ok(self, method):
+        if method.properties['mechanism'] not in ["PLAIN", "AMQPLAIN"]:
+            return False
 
-    #     username = None
-    #     password = None
+        username = None
+        password = None
 
-    #     if method.properties['mechanism'] == "PLAIN":
-    #         _, username, password = method.properties['response'].split('\x00', 3)
+        if method.properties['mechanism'] == "PLAIN":
+            _, username, password = method.properties['response'].split('\x00', 3)
 
-    #     if method.properties['mechanism'] == "AMQPLAIN":
-    #         _, _, username, _, _, password = loads(
-    #             'soSsoS',
-    #             method.properties['response'].encode('utf-8')
-    #         )[0]  # [0] decoded values, [1] => length decoded
+        if method.properties['mechanism'] == "AMQPLAIN":
+            _, _, username, _, _, password = loads(
+                'soSsoS',
+                method.properties['response'].encode('utf-8')
+            )[0]  # [0] decoded values, [1] => length decoded
 
-    #     accepted = self._global_state.check_credentials(
-    #         username,
-    #         password
-    #     )
+        accepted = self._global_state.check_credentials(
+            username,
+            password
+        )
 
-    #     return accepted
+        return accepted
 
 
     def _check_open(self, method):
@@ -226,17 +208,16 @@ class TrackerProtocol(asyncio.protocols.Protocol):
         if channel_number not in self._channels:
             logging.info(f"new channel: {channel_number}")
 
-            self._channels[channel_number] = {
-                'state': _ChannelState.WAITING_OPEN,
-                'number': channel_number,
-            }
+            self._channels[channel_number] = Channel(
+                state=ChannelState.WAITING_OPEN,
+                number=channel_number)
 
 
     def _treat_channel_frame(self, frame_value):
         channel = self._channels[frame_value.channel_number]
         channel_number = frame_value.channel_number
 
-        if channel['state'] == _ChannelState.WAITING_OPEN:
+        if channel.state == ChannelState.WAITING_OPEN:
             if frame_value.method_id != MethodIDs.CHANNEL_OPEN:
                 self.transport.close()
                 return
@@ -249,10 +230,10 @@ class TrackerProtocol(asyncio.protocols.Protocol):
             send_channel_open_ok(
                 self.transport,
                 channel_id='42',
-                channel_number=channel['number'],
+                channel_number=channel.number,
             )
             logging.info("send_channel open ok")
-            channel['state'] = _ChannelState.OPENED
+            channel.state = ChannelState.OPENED
             return
 
         if frame_value.method_id == MethodIDs.CHANNEL_CLOSE:
@@ -262,8 +243,7 @@ class TrackerProtocol(asyncio.protocols.Protocol):
             self.transport.close()
             return
 
-        if channel['state'] == _ChannelState.OPENED:
-
+        if channel.state == ChannelState.OPENED:
             if frame_value.method_id == MethodIDs.EXCHANGE_DECLARE:
                 # TODO add exchange declare callback
 
@@ -303,17 +283,19 @@ class TrackerProtocol(asyncio.protocols.Protocol):
             if frame_value.method_id == MethodIDs.QUEUE_BIND:
                 # TODO add queue bind callback
                 ok = self._global_state.bind_queue(
-                    frame_value.properties['queue-name'],
-                    frame_value.properties['exchange-name'],
+                    queue_name=frame_value.properties['queue-name'],
+                    with_exchange=frame_value.properties['exchange-name'],
+                    routing_key=frame_value.properties['routing-key']
                 )
+
                 if not ok:
                     self.transport.close()
                     return
 
                 send_queue_bind_ok(
                     self.transport,
-                    channel_number,
-                )
+                    channel_number)
+
                 logging.info("queue bind")
                 return
 
@@ -336,13 +318,12 @@ class TrackerProtocol(asyncio.protocols.Protocol):
 
             if frame_value.method_id == MethodIDs.BASIC_PUBLISH:
                 logging.info("message published started")
-                channel['state'] = _ChannelState.WAITING_HEADER
-                channel['exchange'] = frame_value.properties['exchange-name']
-                channel['routing_key'] = frame_value.properties['routing-key']
+                channel.state = ChannelState.WAITING_HEADER
+                channel.exchange = frame_value.properties['exchange-name']
+                channel.routing_key = frame_value.properties['routing-key']
                 return
 
             if frame_value.method_id == MethodIDs.BASIC_CONSUME:
-
                 self._global_state.register_consumer(
                     consumer_protocol=self,
                     consumer_tag=frame_value.properties['consumer-tag'],
@@ -357,6 +338,7 @@ class TrackerProtocol(asyncio.protocols.Protocol):
                 )
                 logging.info("basic consume")
                 return
+
             if frame_value.method_id == MethodIDs.BASIC_ACK:
                 self._global_state.message_ack(
                     frame_value.properties['delivery-tag']
@@ -378,34 +360,34 @@ class TrackerProtocol(asyncio.protocols.Protocol):
                 )
                 return
 
-        if channel['state'] == _ChannelState.WAITING_HEADER:
+        if channel.state == ChannelState.WAITING_HEADER:
             if not frame_value.is_header:
                 return
 
-            channel['on_going_message'] = MessageBuffer(headers=frame_value)
-            channel['state'] = _ChannelState.WAITING_BODY
+            channel.on_going_message = MessageBuffer(headers=frame_value)
+            channel.state = ChannelState.WAITING_BODY
 
-        if channel['state'] == _ChannelState.WAITING_BODY:
+        if channel.state == ChannelState.WAITING_BODY:
             if not frame_value.is_body:
                 return
 
-            message_buffer = channel['on_going_message']
+            message_buffer = channel.on_going_message
             message_buffer.add_content(frame_value.content)
             if not message_buffer.is_complete():
                 return
 
-            # TODO callback message
             ok = self._global_state.store_message(
-                exchange_name=channel['exchange'],
+                exchange_name=channel.exchange,
+                routing_key=channel.routing_key,
                 headers=message_buffer.headers.properties,
-                message_data=message_buffer.content,
-            )
+                message_data=message_buffer.content)
+
             if not ok:
                 self.transport.close()
                 return
 
-            del channel['on_going_message']
-            channel['state'] = _ChannelState.OPENED
+            channel.on_going_message = None
+            channel.state = ChannelState.OPENED
 
 
     def push_message(self, headers, message, channel_number, consumer_tag, delivery_tag, exchange_name):

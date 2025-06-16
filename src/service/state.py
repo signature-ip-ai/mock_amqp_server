@@ -1,9 +1,7 @@
 import os
 import json
-import copy
 import asyncio
 import logging
-import base64
 
 from collections import deque
 from random import randint
@@ -92,7 +90,7 @@ class State:
 
             # AMQP 0.9.1 defines that by default all queues are bound to the default
             # exchange
-            self.bind_queue(queue_name, with_exchange='')
+            self.bind_queue(queue_name, with_exchange='', routing_key='')
 
         return (
             True,  # ok
@@ -101,106 +99,71 @@ class State:
         )
 
 
-    def bind_queue(self, queue, with_exchange):
-        if with_exchange not in self._exchanges:
+    def bind_queue(self, queue_name, with_exchange, routing_key):
+        exchange = self._exchanges.get(with_exchange, None)
+        if None is exchange:
             return False
 
-        if queue not in self._queues:
+        queue = self._queues.get(queue_name, None)
+        if None is queue:
             return False
 
-        logging.info(f"[state] bound queue: {queue}, with_exchange: {with_exchange}")
+        logging.info(f"Bound Queue: {queue_name}, to exchange: {with_exchange}, with routing key: {routing_key}")
 
-        if with_exchange in self._queues_bound_exchanges:
-            self._queues_bound_exchanges[with_exchange].add(queue)
-            return True
-
-        self._queues_bound_exchanges[with_exchange] = {queue}  # set()
+        exchange.bind_queue(routing_key=routing_key, queue=queue)
         return True
 
 
     def register_consumer(self, consumer_protocol, consumer_tag, queue_name, channel_number):
-        if queue_name not in self._queues:
+        queue = self._queues.get(queue_name, None)
+        if None is queue:
             return False
 
-        logging.info(f"[state] consumer registered on queue: {queue_name}")
-        queue = self._queues[queue_name]
+        logging.info(f"Consumer registered on queue: {queue_name}")
         queue.consumers[consumer_tag] = Consumer(protocol=consumer_protocol, channel_number=channel_number)
         return True
 
 
-    def delete_messages_of_queue(self, queue_name):
+    def pop_messages_from_queue(self, queue_name, num_of_messages = 1):
         queue = self._queues.get(queue_name, None)
         if queue is None:
-            return
+            raise ValueError(f"Attempting to read message from a non-existent queue {queue_name}")
 
-        logging.info(f"[state] messages of queue: {queue_name} deleted")
-        queue.messages = deque()
+        popped_messages = []
+
+        try:
+            for _ in range(num_of_messages):
+                popped_messages.append(queue.messages.popleft())
+
+        except IndexError:
+            pass
+
+        return popped_messages
 
 
-    def get_messages_of_queue(self, queue_name):
-        queue = self._queues.get(queue_name, None)
-        if queue is None:
-            return None
+    def store_message(self, exchange_name, routing_key, headers, message_data):
+        """ Store message for as queued by publisher """
 
-        return self.base64encode_message_in_list_when_appliable(list(queue.messages))
-
-
-    def delete_messages_of_exchange(self, exchange_name):
         exchange = self._exchanges.get(exchange_name, None)
-        if exchange is None:
-            return
-        exchange.messages = deque()
-
-
-    def get_messages_of_exchange(self, exchange_name):
-        exchange = self._exchanges.get(exchange_name, None)
-        if exchange is None:
-            return None
-        return self.base64encode_message_in_list_when_appliable(list(exchange.messages))
-
-
-    def base64encode_message_in_list_when_appliable(self, messages) -> list:
-        for i, message in enumerate(copy.deepcopy(messages)):
-            try:
-                message.update({'body': message['body'].decode('utf-8')})
-            except UnicodeDecodeError:
-                message.update({'body': base64.b64encode(message['body']).decode('utf-8'), 'base64': True})
-            messages[i] = message
-        return messages
-
-
-    def store_message(self, exchange_name, headers, message_data):
-        """Store message for inspection."""
-        if exchange_name not in self._exchanges:
+        if None is exchange:
             return False
 
-        message = Message(headers=headers, body=message_data)
+        logging.info(f"Store message in exchange: {exchange_name}")
+        logging.info(f"With routing key: {routing_key}")
+        logging.info(f"Message Header: {headers}")
+        logging.info(f"Message Data: {message_data}")
 
-        logging.info(f"[state] store message in exchange: {exchange_name}")
-        self._exchanges[exchange_name].messages.append(message)
-
-        queues = self._queues_bound_exchanges.get(exchange_name, set())
-
-        for queue_name in queues:
-            self._queues[queue_name].messages.append(message)
-
-        return True
-
-
-    def store_message_in_queue(self, queue_name, headers, message_data):
-        """Store message for inspection."""
-        if queue_name not in self._queues:
+        queue = exchange.get_queue(routing_key)
+        if None is queue:
             return False
 
-        message = Message(headers=headers, body=message_data)
-        self._queues[queue_name].messages.append(message)
-
-        logging.info(f"[state] store message directly in queue: {queue_name}")
+        queue.messages.append(Message(headers=headers, body=message_data))
         return True
 
 
     def publish_message(self, exchange_name, headers, message_data, is_binary: bool = False):
         """Publish message to a worker without storing it."""
+
         if exchange_name not in self._exchanges:
             return None
 
@@ -233,7 +196,7 @@ class State:
                 consumer.protocol.push_message(
                     headers,
                     message_data.encode('utf8') if not is_binary else message_data,
-                    consumer['channel_number'],
+                    consumer.channel_number,
                     consumer_tag,
                     delivery_tag,
                     exchange_name,
@@ -253,6 +216,7 @@ class State:
 
     def publish_message_in_queue(self, queue_name, headers, message_data, is_binary: bool = False):
         """Publish message to a worker without storing it."""
+
         if queue_name not in self._queues:
             return None
 
@@ -308,53 +272,29 @@ class State:
             self._message_not_acknowledged.add(delivery_tag)
 
 
-    async def wait_authentication_performed_on(self, username, timeout=10):
-        for _ in range(timeout):
-            decoded_username = username.decode('utf-8')
-            if decoded_username in self._authentication_tried_on:
-                return self._authentication_tried_on[decoded_username]
+    def process_messages_in_queues(self):
+        for _, queue in self._queues.items():
+            for consumer_tag, consumer in queue.consumers.items():
+                delivery_tag = 1
 
+                if consumer.protocol.transport.is_closing():
+                    continue
+
+                for message in queue.messages:
+                    consumer.protocol.push_message(
+                        message.headers,
+                        message.body,
+                        consumer.channel_number,
+                        consumer_tag,
+                        delivery_tag,
+                        'dummy-exchange')
+
+                    delivery_tag = delivery_tag + 1
+
+            queue.messages = deque()
+
+
+    async def process_messages(self):
+        while True:
+            self.process_messages_in_queues()
             await asyncio.sleep(1)
-
-        raise WaitTimeout()
-
-    async def wait_message_acknowledged(self, delivery_tag, timeout=10):
-        for _ in range(timeout):
-            if delivery_tag in self._message_acknowledged:
-                return True
-
-            await asyncio.sleep(1)
-
-        raise WaitTimeout()
-
-    async def wait_message_not_acknowledged(self, delivery_tag, timeout=10):
-        for _ in range(timeout):
-            if delivery_tag in self._message_not_acknowledged:
-                return True
-
-            await asyncio.sleep(1)
-
-        raise WaitTimeout()
-
-    async def wait_message_requeued(self, delivery_tag, timeout=10):
-        for _ in range(timeout):
-            if delivery_tag in self._message_requeued:
-                return True
-
-            await asyncio.sleep(1)
-
-        raise WaitTimeout()
-
-    async def wait_queue_bound(self, queue, exchange, timeout=10):
-        for _ in range(timeout):
-            queues = self._queues_bound_exchanges.get(
-                exchange,
-                set(),
-            )
-
-            if queue in queues:
-                return True
-
-            await asyncio.sleep(1)
-
-        raise WaitTimeout()
