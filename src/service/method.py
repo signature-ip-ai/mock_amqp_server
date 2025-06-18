@@ -5,6 +5,9 @@ from service.serialization import loads
 
 
 class MethodIDs(IntEnum):
+    # For reference on how MethodID's are assembed see docs/amqp0-9-1/amqp0-9-1.pdf section 4.2.4
+    # For reference on respective ID's assigned per method see docs/amqp0-9-1/amqp-xml-doc0-9-1.pdf
+
     START_OK            = 0x000A000B
     TUNE_OK             = 0x000A001F
     HEART_BEAT          = 0x000A001F
