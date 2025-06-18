@@ -1,47 +1,47 @@
+import logging
+
 from enum import IntEnum
-from .serialization import loads
+from service.serialization import loads
 
 
 class MethodIDs(IntEnum):
-    START_OK = 0x000A000B
-    TUNE_OK = 0x000A001F
-    HEART_BEAT = 0x000A001F
-    OPEN = 0x000A0028
-    CLOSE = 0x000A0032
+    # For reference on how MethodID's are assembed see docs/amqp0-9-1/amqp0-9-1.pdf section 4.2.4
+    # For reference on respective ID's assigned per method see docs/amqp0-9-1/amqp-xml-doc0-9-1.pdf
 
-    CHANNEL_OPEN = 0x0014000A
-    CHANNEL_CLOSE = 0x00140028
+    START_OK            = 0x000A000B
+    TUNE_OK             = 0x000A001F
+    HEART_BEAT          = 0x000A001F
+    OPEN                = 0x000A0028
+    CLOSE               = 0x000A0032
 
-    BASIC_CANCEL = 0x003C001E
-    BASIC_QOS = 0x003C000A
-    BASIC_PUBLISH = 0x003C0028
-    BASIC_CONSUME = 0x003C0014
-    BASIC_ACK = 0x003C0050
-    BASIC_NACK = 0x003C0078
+    CHANNEL_OPEN        = 0x0014000A
+    CHANNEL_CLOSE       = 0x00140028
 
-    EXCHANGE_DECLARE = 0x0028000A
+    BASIC_CANCEL        = 0x003C001E
+    BASIC_QOS           = 0x003C000A
+    BASIC_PUBLISH       = 0x003C0028
+    BASIC_CONSUME       = 0x003C0014
+    BASIC_ACK           = 0x003C0050
+    BASIC_NACK          = 0x003C0078
 
-    QUEUE_DECLARE = 0x0032000A
-    QUEUE_BIND = 0x00320014
+    EXCHANGE_DECLARE    = 0x0028000A
+
+    QUEUE_DECLARE       = 0x0032000A
+    QUEUE_BIND          = 0x00320014
+
+    CONFIRM_SELECT      = 0x0055000A
 
 
 class Method:
-    def __init__(
-        self,
-        channel_number,
-        size,
-        method_id,
-        payload,
-    ):
+    def __init__(self, channel_number, size, method_id, payload):
         self.is_header = False
         self.is_body = False
         self.channel_number = channel_number
         self.size = size
         self.method_id = method_id
-
-        print('Method id:', hex(method_id))
         decode_method = _ID_TO_METHOD[method_id]
-        print('Method name:', decode_method.__name__)
+
+        logging.info(f"Method id: {hex(method_id)}, Method name: {decode_method.__name__}")
         self.properties = decode_method(payload)
 
 
@@ -63,15 +63,7 @@ class Header:
         ('cluster_id', 's', 1 << 2)
     ]
 
-    def __init__(
-        self,
-        channel_number,
-        size,
-        class_id,
-        body_size,
-        property_flags,
-        payload,
-    ):
+    def __init__(self, channel_number, size, class_id, body_size, property_flags, payload):
         self.is_header = True
         self.is_body = False
         self.method_id = None
@@ -97,12 +89,7 @@ class Header:
 
 
 class Body:
-    def __init__(
-        self,
-        channel_number,
-        size,
-        payload,
-    ):
+    def __init__(self, channel_number, size, payload):
         self.is_header = False
         self.is_body = True
         self.method_id = None
@@ -320,24 +307,30 @@ def _decode_basic_cancel(payload):
     }
 
 
+def _decode_confirm_select(__unused_payload):
+    return {}
+
+
 _ID_TO_METHOD = {
-    0x000A000B: _decode_start_ok,
-    0x000A001F: _decode_tune_ok,
-    0x000A0028: _decode_open,
+    MethodIDs.START_OK: _decode_start_ok,
+    MethodIDs.TUNE_OK: _decode_tune_ok,
+    MethodIDs.OPEN: _decode_open,
     MethodIDs.CLOSE: _decode_close,
 
-    0x0014000A: _decode_channel_open,
-    0x00140028: _decode_channel_close,
+    MethodIDs.CHANNEL_OPEN: _decode_channel_open,
+    MethodIDs.CHANNEL_CLOSE: _decode_channel_close,
 
-    0x003C000A: _decode_basic_qos,
-    0x003C0028: _decode_basic_publish,
+    MethodIDs.BASIC_QOS: _decode_basic_qos,
+    MethodIDs.BASIC_PUBLISH: _decode_basic_publish,
     MethodIDs.BASIC_CONSUME: _decode_basic_consume,
     MethodIDs.BASIC_ACK: _decode_basic_ack,
     MethodIDs.BASIC_NACK: _decode_basic_nack,
 
     MethodIDs.BASIC_CANCEL: _decode_basic_cancel,
 
-    0x0028000A: _decode_exchange_declare,
+    MethodIDs.EXCHANGE_DECLARE: _decode_exchange_declare,
     MethodIDs.QUEUE_DECLARE: _decode_queue_declare,
     MethodIDs.QUEUE_BIND: _decode_queue_bind,
+
+    MethodIDs.CONFIRM_SELECT: _decode_confirm_select
 }

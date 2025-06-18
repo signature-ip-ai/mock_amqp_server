@@ -1,6 +1,7 @@
+import logging
 from struct import pack
 
-from .serialization import dumps
+from service.serialization import dumps
 
 _FRAME_END = b'\xce'
 
@@ -38,6 +39,7 @@ def send_heartbeat(transport):
 
 
 def send_connection_start(transport):
+    logging.info(f"send_connection_start: {transport}")
     # dumped from the peer-properties sent by a RabbitMQ 3.7.4
     # server
     peer_properties = {
@@ -405,6 +407,33 @@ def send_basic_qos_ok(
     transport.write(_FRAME_END)
 
 
+def send_confirm_select_ok(
+    transport,
+    channel_number,
+):
+    transport.write(
+        bytearray(
+            [
+                1,  # method
+                # channel number, same as the one received
+                0, channel_number,
+            ]
+        )
+    )
+    # size of the frame
+    # class+method (4 bytes)
+    transport.write(pack('>I', 4))
+
+    transport.write(
+        bytearray([
+            0, 85,  # class Confirm (85)
+            0, 11,  # method select-ok (11)
+        ])
+    )
+
+    transport.write(_FRAME_END)
+
+
 def send_basic_consume_ok(
     transport,
     channel_number,
@@ -524,7 +553,7 @@ def send_content_header(
             property_flags,
         ] + property_values,
     )
-    print(arguments)
+    logging.info(arguments)
 
     # size of the frame
     transport.write(pack('>I', len(arguments)))

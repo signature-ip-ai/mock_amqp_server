@@ -1,4 +1,6 @@
-class Message:
+#!/bin/env python3
+
+class MessageBuffer:
     def __init__(self, headers):
         self.headers = headers
         self.content = b''
