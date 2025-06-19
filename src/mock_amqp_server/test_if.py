@@ -1,7 +1,7 @@
 #!/bin/env python3
 
-from service.server import run_server
-from service.state import State
+from mock_amqp_server.server import run_server
+from mock_amqp_server.state import State
 
 global_state = State()
 

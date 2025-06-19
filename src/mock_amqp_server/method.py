@@ -1,7 +1,7 @@
 import logging
 
 from enum import IntEnum
-from service.serialization import loads
+from mock_amqp_server.serialization import loads
 
 
 class MethodIDs(IntEnum):

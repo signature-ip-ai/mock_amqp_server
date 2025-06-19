@@ -1,7 +1,7 @@
 import logging
 from struct import pack
 
-from service.serialization import dumps
+from mock_amqp_server.serialization import dumps
 
 _FRAME_END = b'\xce'
 

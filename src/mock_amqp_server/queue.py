@@ -2,8 +2,8 @@
 
 from collections import deque
 
-from service.consumer import Consumer
-from service.message import Message
+from mock_amqp_server.consumer import Consumer
+from mock_amqp_server.message import Message
 
 
 class Queue(object):

@@ -4,8 +4,8 @@ import logging
 import traceback
 import asyncio
 
-from service.protocol import TrackerProtocol
-from service.state import State
+from mock_amqp_server.protocol import TrackerProtocol
+from mock_amqp_server.state import State
 
 
 def run_server(global_state = State(), host = '0.0.0.0', port = 5672, start_backend = True):

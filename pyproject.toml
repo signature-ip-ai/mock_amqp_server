@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [project.scripts]
-mock_amqp_server = "service:main"
+mock_amqp_server = "mock_amqp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/signature-ip-ai/mock_amqp_server"

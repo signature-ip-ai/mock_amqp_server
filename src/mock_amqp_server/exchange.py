@@ -1,8 +1,8 @@
 #!/bin/env python3
 
 from collections import deque
-from service.message import Message
-from service.queue import Queue
+from mock_amqp_server.message import Message
+from mock_amqp_server.queue import Queue
 
 
 class Exchange(object):

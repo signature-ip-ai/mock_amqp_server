@@ -6,10 +6,10 @@ import logging
 from collections import deque
 from random import randint
 
-from service.exchange import Exchange
-from service.queue import Queue
-from service.consumer import Consumer
-from service.message import Message
+from mock_amqp_server.exchange import Exchange
+from mock_amqp_server.queue import Queue
+from mock_amqp_server.consumer import Consumer
+from mock_amqp_server.message import Message
 
 
 DEFAULT_USER = os.environ.get('DEFAULT_USER', 'user')

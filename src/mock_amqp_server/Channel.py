@@ -1,7 +1,7 @@
 #!/bin/env python3
 
-from service.ChannelState import ChannelState
-from service.message_buffer import MessageBuffer
+from mock_amqp_server.ChannelState import ChannelState
+from mock_amqp_server.message_buffer import MessageBuffer
 
 
 class Channel(object):

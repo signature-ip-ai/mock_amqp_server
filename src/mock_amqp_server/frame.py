@@ -1,9 +1,9 @@
 import logging
 import struct
-from service.method import Method
-from service.method import Header
-from service.method import Body
-from service.heartbeat import HeartBeat
+from mock_amqp_server.method import Method
+from mock_amqp_server.method import Header
+from mock_amqp_server.method import Body
+from mock_amqp_server.heartbeat import HeartBeat
 
 _FRAME_HEADER_SIZE = 7
 _FRAME_END_SIZE = 1

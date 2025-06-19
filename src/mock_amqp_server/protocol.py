@@ -2,15 +2,15 @@ import logging
 import traceback
 import asyncio
 
-from service.message_buffer import MessageBuffer
-from service.ChannelState import ChannelState
-from service.ConnectionState import ConnectionState
-from service.Channel import Channel
-from service.serialization import loads
-from service.frame import read_frame
-from service.heartbeat import HeartBeat
-from service.method import MethodIDs
-from service.sender import (
+from mock_amqp_server.message_buffer import MessageBuffer
+from mock_amqp_server.ChannelState import ChannelState
+from mock_amqp_server.ConnectionState import ConnectionState
+from mock_amqp_server.Channel import Channel
+from mock_amqp_server.serialization import loads
+from mock_amqp_server.frame import read_frame
+from mock_amqp_server.heartbeat import HeartBeat
+from mock_amqp_server.method import MethodIDs
+from mock_amqp_server.sender import (
     send_connection_start,
     send_connection_tune,
     send_connection_ok,

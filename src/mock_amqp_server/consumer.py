@@ -1,6 +1,6 @@
 #!/bin/env python3
 
-from service.protocol import TrackerProtocol
+from mock_amqp_server.protocol import TrackerProtocol
 
 
 class Consumer(object):
