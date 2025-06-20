@@ -21,6 +21,7 @@ classifiers = [
 ]
 dependencies = [
     "h11 == 0.16.0",
+    "waiting == 1.5.0"
 ]
 
 [project.scripts]
