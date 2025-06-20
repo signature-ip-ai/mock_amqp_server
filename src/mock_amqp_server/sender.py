@@ -481,6 +481,8 @@ def send_basic_deliver(
     exchange_name,
     routing_key,
 ):
+    logging.info("Basic Deliver - Start")
+
     arguments = dumps(
         format='sLbss',
         values=[
@@ -491,6 +493,8 @@ def send_basic_deliver(
             routing_key,
         ]
     )
+
+    logging.info(f"Arguments: {arguments}")
 
     transport.write(
         bytearray(
@@ -514,8 +518,8 @@ def send_basic_deliver(
     )
 
     transport.write(arguments)
-
     transport.write(_FRAME_END)
+    logging.info("Basic Deliver - Complete")
 
 
 def send_content_header(
@@ -524,6 +528,8 @@ def send_content_header(
     properties,
     body_size,
 ):
+    logging.info("Send Headers - Start")
+
     transport.write(
         bytearray(
             [
@@ -553,13 +559,13 @@ def send_content_header(
             property_flags,
         ] + property_values,
     )
-    logging.info(arguments)
+    logging.info(f"Arguments {arguments}")
 
     # size of the frame
     transport.write(pack('>I', len(arguments)))
     transport.write(arguments)
-
     transport.write(_FRAME_END)
+    logging.info("Send Headers - Complete")
 
 
 def send_content_body(
@@ -567,6 +573,8 @@ def send_content_body(
     channel_number,
     body,
 ):
+    logging.info("Send Message Body - Start")
+
     transport.write(
         bytearray(
             [
@@ -577,8 +585,11 @@ def send_content_body(
         )
     )
 
+    logging.info("Send Message Body - Frame Header Sent")
+
     # size of the frame
     transport.write(pack('>I', len(body)))
     transport.write(body)
-
+    logging.info("Send Message Body - Frame Payload Sent")
     transport.write(_FRAME_END)
+    logging.info("Send Message Body - Complete")

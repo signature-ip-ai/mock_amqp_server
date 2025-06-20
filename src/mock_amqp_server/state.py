@@ -124,23 +124,6 @@ class State:
         return True
 
 
-    def pop_messages_from_queue(self, queue_name, num_of_messages = 1):
-        queue = self._queues.get(queue_name, None)
-        if queue is None:
-            raise ValueError(f"Attempting to read message from a non-existent queue {queue_name}")
-
-        popped_messages = []
-
-        try:
-            for _ in range(num_of_messages):
-                popped_messages.append(queue.messages.popleft())
-
-        except IndexError:
-            pass
-
-        return popped_messages
-
-
     def store_message(self, exchange_name, routing_key, headers, message_data):
         """ Store message for as queued by publisher """
 
@@ -291,10 +274,44 @@ class State:
 
                     delivery_tag = delivery_tag + 1
 
-            queue.messages = deque()
+                queue.messages = deque()
 
 
     async def process_messages(self):
         while True:
             self.process_messages_in_queues()
             await asyncio.sleep(1)
+
+
+    async def pop_message_from_queue(self, queue_name):
+        while None is self._queues.get(queue_name, None):
+            logging.info(f"Waiting for {queue_name}")
+            await asyncio.sleep(2)
+
+        queue = self._queues.get(queue_name, None)
+
+        while not queue.messages:
+            await asyncio.sleep(2)
+
+        return queue.messages.popleft()
+
+
+    async def insert_message_to_exchange(self, exchange_name, routing_key, message_data: bytes):
+        while None is self._exchanges.get(exchange_name, None):
+            logging.info(f"Waiting for {exchange_name}")
+            await asyncio.sleep(2)
+
+        exchange = self._exchanges.get(exchange_name, None)
+
+        logging.info(f"Store message in exchange: {exchange_name}")
+        logging.info(f"With routing key: {routing_key}")
+        logging.info(f"Message Data: {message_data}")
+
+        while None is exchange.get_queue(routing_key):
+            logging.info(f"Waiting for {routing_key}")
+            await asyncio.sleep(2)
+
+        queue = exchange.get_queue(routing_key)
+
+        queue.messages.append(Message(headers={}, body=message_data))
+        return True

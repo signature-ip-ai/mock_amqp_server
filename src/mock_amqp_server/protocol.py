@@ -391,6 +391,13 @@ class TrackerProtocol(asyncio.protocols.Protocol):
 
 
     def push_message(self, headers, message, channel_number, consumer_tag, delivery_tag, exchange_name):
+        logging.info(f"Sending message: {message}")
+        logging.info(f"With headers: {headers}")
+        logging.info(f"Channel number: {channel_number}")
+        logging.info(f"Consumer tag: {consumer_tag}")
+        logging.info(f"Delivery tag: {delivery_tag}")
+        logging.info(f"From exchange: {exchange_name}")
+
         send_basic_deliver(
             self.transport,
             channel_number,
