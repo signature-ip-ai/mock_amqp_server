@@ -18,7 +18,6 @@ class ServiceController(object):
         self._port = port
         self._server: asyncio.Server = None
         self._backend_process: asyncio.Task = None
-        self._is_stopping = False
 
 
     def start_server(self):
@@ -27,15 +26,24 @@ class ServiceController(object):
         self._event_loop_thread.start()
 
 
-    def stop_server(self):
+    def stop_server(self, timeout_seconds = 0.5):
         logging.info("Tear-down server, closing connection")
         self._event_loop.stop()
         self._event_loop_thread.join()
 
         self._backend_process.cancel()
         self._server.close()
-        self._event_loop.run_until_complete(self._server.wait_closed())
+        self._event_loop.run_until_complete(self._wait_server_close(timeout_seconds))
         self._event_loop.close()
+
+
+    async def _wait_server_close(self, timeout_seconds):
+        try:
+            async with asyncio.timeout(timeout_seconds):
+                await self._server.wait_closed()
+
+        except asyncio.TimeoutError:
+            logging.info("Server close operation timed out")
 
 
     def start_standalone_server(self):
