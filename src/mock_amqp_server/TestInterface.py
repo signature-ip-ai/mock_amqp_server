@@ -16,8 +16,8 @@ class TestInterface(object):
         self._event_loop = self._controller.get_event_loop()
 
 
-    def teardown_server(self):
-        self._controller.stop_server()
+    def teardown_server(self, timeout_seconds = 0.5):
+        self._controller.stop_server(timeout_seconds)
 
 
     def pop_message_from_queue(self, queue_name, timeout_seconds: int | None = None):
